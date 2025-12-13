@@ -1,4 +1,3 @@
-# app.py - Complete Chess Board Detection and Classification Pipeline
 import cv2 as cv
 import numpy as np
 import torch
@@ -498,7 +497,7 @@ if __name__ == "__main__":
     app = ChessMateApp(MODEL_PATH, CLASS_NAMES, DEVICE)
 
     app.continuous_monitoring(
-        region=None,  # or specify region
+        region=None,
         interval=3,   # seconds between captures
         auto_detect_orientation=True
     )
