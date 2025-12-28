@@ -151,6 +151,8 @@ class ChessBoard:
         ]
         self.move_history = []
         self.nodes_evaluated = 0
+        # Optional override for side-to-move (None => infer from move_history)
+        self.forced_turn: Optional[str] = None
 
     def copy(self):
         """Create a deep copy of the board state."""
@@ -169,7 +171,55 @@ class ChessBoard:
 
     def get_current_turn(self) -> str:
         """Return whose turn it is: 'white' or 'black'."""
+        if self.forced_turn in ('white', 'black'):
+            return self.forced_turn
+
         return 'white' if len(self.move_history) % 2 == 0 else 'black'
+
+    def set_board_from_fen(self, fen: str, side: Optional[str] = None) -> None:
+        """Set board position from a FEN string (only piece placement + optional side supported).
+
+        Args:
+            fen: FEN string (e.g. 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')
+            side: Optional explicit side-to-move: 'white' or 'black'. If provided it overrides FEN's side or the
+                  board's inferred turn.
+        """
+        parts = fen.strip().split()
+        placement = parts[0]
+        # If FEN contains side and caller didn't provide side, use it
+        fen_side = None
+        if len(parts) > 1 and side is None:
+            if parts[1] == 'w':
+                fen_side = 'white'
+            elif parts[1] == 'b':
+                fen_side = 'black'
+
+        ranks = placement.split('/')
+        if len(ranks) != 8:
+            raise ValueError('FEN must contain 8 ranks')
+
+        new_board: List[List[Optional[str]]] = []
+        for rank in ranks:
+            row: List[Optional[str]] = []
+            for ch in rank:
+                if ch.isdigit():
+                    row.extend([None] * int(ch))
+                else:
+                    row.append(ch)
+            if len(row) != 8:
+                raise ValueError('Each FEN rank must expand to 8 squares')
+            new_board.append(row)
+
+        # FEN ranks go from rank 8 -> rank 1; our board rows are 0->7 top->bottom, so assignment is direct
+        self.board = new_board
+        self.move_history = []
+        # set forced turn
+        if side in ('white', 'black'):
+            self.forced_turn = side
+        elif fen_side in ('white', 'black'):
+            self.forced_turn = fen_side
+        else:
+            self.forced_turn = None
 
     def get_valid_moves(self, row: int, col: int) -> List[Tuple[int, int]]:
         """Get all valid moves for piece at (row, col)."""
@@ -469,22 +519,99 @@ class ChessEngine:
             'depth': self.max_depth_reached
         }
 
+    def find_best_move_from_fen(self, fen: str, side: str, depth: int) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
+        """Set the board from a FEN string and return the best move for the given side.
 
-# Example
+        Args:
+            fen: FEN string (piece placement; optional side may be included)
+            side: 'white' or 'black' to indicate which side should move
+            depth: search depth passed to the engine
+
+        Returns:
+            Best move tuple ((r1,c1),(r2,c2)) or None
+        """
+        if side not in ('white', 'black'):
+            raise ValueError("side must be 'white' or 'black'")
+
+        # Update board from FEN and set forced turn
+        self.board.set_board_from_fen(fen, side)
+        return self.find_best_move(depth)
+
+
+def find_best_move_for_fen(fen_input: str, side_input: Optional[str] = None, depth: int = 3):
+    """Convenience wrapper that creates an engine, sets the FEN and returns best move and stats.
+
+    Args:
+        fen_input: FEN string (may include side)
+        side_input: Optional explicit side ('white' or 'black') to override FEN
+        depth: search depth
+
+    Returns:
+        Tuple(best_move_or_None, engine_stats_dict)
+    """
+    engine = ChessEngine()
+
+    # Determine side from FEN if side_input not provided
+    fen_parts = fen_input.strip().split()
+    fen_side = None
+    if len(fen_parts) > 1:
+        if fen_parts[1] == 'w':
+            fen_side = 'white'
+        elif fen_parts[1] == 'b':
+            fen_side = 'black'
+
+    if side_input in ('white', 'black'):
+        chosen_side = side_input
+    elif fen_side in ('white', 'black'):
+        chosen_side = fen_side
+    else:
+        chosen_side = 'white'
+
+    best = engine.find_best_move_from_fen(fen_input, chosen_side, depth)
+    return best, engine.get_engine_stats()
+
+
+# Example: accept FEN and side, return best move
 if __name__ == "__main__":
-    board = ChessBoard()
-    engine = ChessEngine(board)
+    import sys
 
-    print(board)
-    print(f"Evaluation: {board.evaluate()}")
+    engine = ChessEngine()
 
-    best_move = engine.find_best_move(depth=3)
-    if best_move:
-        from_pos, to_pos = best_move
-        print(f"\nBest move: {chr(97 + from_pos[1])}{8 - from_pos[0]} → {chr(97 + to_pos[1])}{8 - to_pos[0]}")
-        print(f"Stats: {engine.get_engine_stats()}")
+    # CLI usage: python chess_engine.py "<FEN>" [white|black] [depth]
+    if len(sys.argv) > 1:
+        fen_input = sys.argv[1]
+        side_input = sys.argv[2] if len(sys.argv) > 2 else ''
+        depth = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else 3
+    else:
+        fen_input = input("Enter FEN (leave blank for startpos): ").strip()
+        if not fen_input:
+            fen_input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        side_input = input("Side to move (white/black) [leave blank to use FEN]: ").strip().lower()
+        depth_input = input("Search depth (default 3): ").strip()
+        depth = int(depth_input) if depth_input.isdigit() else 3
 
-        # Make the move
-        board.make_move(from_pos, to_pos)
-        print("\nBoard after move:")
-        print(board)
+    # Determine side to pass to engine: prefer explicit side_input, else use FEN side, else default to white
+    fen_parts = fen_input.strip().split()
+    fen_side = None
+    if len(fen_parts) > 1:
+        if fen_parts[1] == 'w':
+            fen_side = 'white'
+        elif fen_parts[1] == 'b':
+            fen_side = 'black'
+
+    if side_input in ('white', 'black'):
+        chosen_side = side_input
+    elif fen_side in ('white', 'black'):
+        chosen_side = fen_side
+    else:
+        chosen_side = 'white'
+
+    print(f"Setting position from FEN and searching for best move for: {chosen_side} (depth={depth})")
+    best, stats = find_best_move_for_fen(fen_input, side_input=chosen_side, depth=depth)
+
+    if best:
+        (r1, c1), (r2, c2) = best
+        print(f"Best move: {chr(97 + c1)}{8 - r1} -> {chr(97 + c2)}{8 - r2}")
+        print("Engine stats:", stats)
+    else:
+        print("No legal moves found for the given position/side.")

@@ -1,53 +1,82 @@
-CheckMate Machine ♟️
-Promoting Fair Play through Computer Vision and AI
+# CheckMate Machine ♟️
+IEEE-VIT's Chess Playground. Includes a Chess Engine and some support tools for using it.
 
-CheckMate Machine is an intelligent vision-based system designed to ensure fairness in chess by automatically detecting a 2D chessboard from a screen, recognizing all pieces in real time, validating moves through an integrated chess engine, and analyzing gameplay for irregularities.
+## Overview
+CheckMate Machine is a compact toolkit created by IEEE-VIT that combines:
+- A lightweight search-based chess engine,
+- A demo 2D web UI for playing against the engine,
+- A lightweight FastAPI backend that exposes the engine as an HTTP service,
+- Vision & preprocessing helpers to take and convert board screenshots into FEN strings.
 
-🧠 Overview
+## Project Structure
+- **`2DChessBoard`**: vision / preprocessing pipeline used to convert 2D screenshots into chessboard FEN input.
+- **`Chess Engine`**: the engine implementation (board, move generation, minimax search)
+- **`Demo/Frontend/`**: simple static demo (HTML, CSS and JS) that renders a board and can play single-player vs the engine.
+- **`Demo/Backend/`**: backend FastAPI service that exposes `/engine/best_move`. 
 
-CheckMate Machine bridges computer vision and chess analytics to promote transparent and fair play. Using deep learning and OpenCV, it processes live or static board images, accurately determines the position of each piece, and continuously verifies that all moves comply with the rules of chess and provides smart game analysis.
 
-⚙️ Core Functionality
+## Quick Start
+Get the demo running locally in two terminals: backend (engine API) and frontend (static site).
 
-Automated Board Detection:
-Detects and isolates the chessboard from any 2D screen image using robust edge and contour analysis.
+1) Create & activate a Python virtual environment (Optional, but recommended)
 
-Piece Recognition:
-A Convolutional Neural Network (CNN) trained on a large, standardized dataset identifies each piece with high accuracy, distinguishing between color and type (e.g., white pawn, black rook).
+```bash
+python -m venv .venv
+# Windows
+.\\.venv\\Scripts\\activate
+# macOS / Linux
+source .venv/bin/activate
+```
 
-Move Validation:
-Every detected move is validated in real time using an integrated chess engine (Stockfish), ensuring compliance with legal chess rules.
+2) Install dependencies
 
-Fair Play Analysis:
-The system tracks and evaluates move patterns to identify anomalies or potential external assistance, promoting honest gameplay.
+```bash
+pip install -r requirements.txt
+```
 
-Game Visualization:
-Provides an annotated overlay or digital board interface showing detected positions, legal moves, and game insights.
+3) Run the backend (FastAPI + engine)
 
-🧩 Technical Highlights
+```bash
+uvicorn Demo.Backend.main:app --reload --host 127.0.0.1 --port 8000
+```
 
-Developed using Python, leveraging OpenCV for vision processing and TensorFlow/Keras for deep learning. The dataset was automatically generated and labeled through a custom OpenCV pipeline, ensuring clean and balanced training data. Perspective correction and segmentation techniques enable accurate detection across varied angles and lighting conditions. Real-time inference ensures smooth gameplay analysis with minimal delay.
+4) Serve the frontend (static)
 
-🖥️ System Workflow
+```bash
+# from repo root
+python -m http.server 3000 --directory Demo/Frontend
+# open http://localhost:3000 in your browser
+```
 
-Capture: Input an image or live stream of a chessboard.
+### Using the Engine API
+The backend exposes a single useful endpoint for the demo UI:
 
-Detection: Locate the chessboard and correct perspective.
+- POST `/engine/best_move` — request the engine's recommended move.
 
-Segmentation: Divide the board into 64 squares.
+Request JSON body example:
 
-Classification: Identify each piece using the trained CNN.
+```json
+{
+	"fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1",
+	"side": "white",
+	"depth": 2
+}
+```
 
-Validation: Compare moves with the chess engine’s legal move set.
+Example curl test (from a terminal):
 
-Analysis: Generate fair-play and game integrity reports.
+```bash
+curl -X POST http://127.0.0.1:8000/engine/best_move \\
+	-H "Content-Type: application/json" \\
+	-d '{"fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1","depth":2}'
+```
 
-📊 Results
+Response format (JSON):
 
-Board Detection Accuracy: 100% under varied conditions.
-
-Piece Classification Accuracy: 97.89% total.
-
-🏁 Final Product
-
-CheckMate Machine stands as a complete, AI-powered chess monitoring tool that unites the precision of computer vision with the intelligence of chess engines. It not only ensures move legality but also enhances the transparency and integrity of the game, whether used for online tournaments, training sessions, or fair-play verification.
+```json
+{
+	"from": "e2",
+	"to": "e4",
+	"stats": { "nodes_evaluated": 123, "depth": 2 }
+}
+```

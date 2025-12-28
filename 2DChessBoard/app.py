@@ -484,7 +484,7 @@ class ChessMateApp:
 
 if __name__ == "__main__":
     # Configuration
-    MODEL_PATH = "C:\\Users\\mjaye\\PycharmProjects\\FairChess\\chess_piece_cnn.pth"  # Path to your trained model
+    MODEL_PATH = "chess_piece_cnn.pth"  # Path to your trained model
 
     # Class names match training order
     CLASS_NAMES = ['bb', 'bk', 'bn', 'bp', 'bq', 'br',
