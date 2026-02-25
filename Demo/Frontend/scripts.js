@@ -25,6 +25,7 @@ let currentPlayer = white;
 let singlePlayerMode = true;
 let userSide = null; // 'white' or 'black'
 let engineThinking = false;
+let gameOver = false;
 
 let SquareObject = function (x, y, color, selected, element, piece) {
     this.x = x;
@@ -82,6 +83,7 @@ let Castle = function (x, y, color) {
     this.type = "castle";
     this.x = x;
     this.y = y;
+    this.hasMoved = false;
 };
 
 Castle.prototype = new Piece();
@@ -334,71 +336,64 @@ King.prototype.isValidMove = function (toSquare, n = 1) {
         }
         toSquare.setPiece(oldPiece);
     }
-    else if (currentPlayer.moved == currentPlayer.king) { //castling
-        console.log("n = " + n);
-        if (currentPlayer.kingMoved == false) {
-            Y = currentPlayer == white ? 8 : 1;
+    else if (Math.abs(movementX) == 2 && movementY == 0) { // Castling
+        if (currentPlayer.kingMoved == false && currentPlayer.checked == false) {
+            let Y = currentPlayer == white ? 8 : 1;
             if (currentPlayer.king.x == 5 && currentPlayer.king.y == Y) {
-                if (currentPlayer.checked == false) {
-                    if (movementX == 2) {
-                        if (getSquare(8, Y).piece instanceof Castle) {
-                            if (getSquare(7, Y).piece == null && getSquare(6, Y).piece == null) {
-                                currentPlayer.kingMoved = true;
-                                currentPlayer.king.x = 7;
-                                currentPlayer.king.y = Y;
-                                if (!kingExposed(currentPlayer.king)) {
-                                    currentPlayer.king.x = 6;
-                                    currentPlayer.king.y = 8;
-                                    if (!kingExposed(currentPlayer.king)) {
-                                        console.log("allow");
-                                        result.valid = true;
-                                        currentPlayer.kingMoved = true;
-                                        let rook = getSquare(8, Y).piece;
-                                        getSquare(8, Y).unsetPiece();
-                                        getSquare(6, Y).setPiece(rook);
-                                        rook.x = 6;
-                                        rook.y = Y;
-                                    }
-                                    else {
-                                        console.log("exposed at 6," + Y);
-                                        currentPlayer.kingMoved = false;
-                                    }
-                                }
-                                else {
-                                    console.log("exposed at 7," + Y);
-                                    currentPlayer.kingMoved = false;
-                                }
+                let savedKingX = currentPlayer.king.x;
+                let savedKingY = currentPlayer.king.y;
+                if (movementX == 2) { // Kingside castling
+                    let rookSquare = getSquare(8, Y);
+                    if (rookSquare.piece instanceof Castle && !rookSquare.piece.hasMoved) {
+                        if (getSquare(6, Y).piece == null && getSquare(7, Y).piece == null) {
+                            // Check king doesn't pass through attacked square (f-file)
+                            currentPlayer.king.x = 6;
+                            currentPlayer.king.y = Y;
+                            let passThroughSafe = !kingExposed(currentPlayer.king);
+                            // Check destination square (g-file)
+                            currentPlayer.king.x = 7;
+                            currentPlayer.king.y = Y;
+                            let destSafe = !kingExposed(currentPlayer.king);
+                            // Restore king position
+                            currentPlayer.king.x = savedKingX;
+                            currentPlayer.king.y = savedKingY;
+                            if (passThroughSafe && destSafe) {
+                                result.valid = true;
+                                // Move the rook
+                                let rook = rookSquare.piece;
+                                rookSquare.unsetPiece();
+                                getSquare(6, Y).setPiece(rook);
+                                rook.x = 6;
+                                rook.y = Y;
+                                rook.hasMoved = true;
                             }
                         }
                     }
-                    else if (movementX == -2) {
-                        if (getSquare(1, Y).piece instanceof Castle) {
-                            if (getSquare(2, Y).piece == null && getSquare(3, Y).piece == null && getSquare(4, Y).piece == null) {
-                                currentPlayer.kingMoved = true;
-                                currentPlayer.king.x = 3;
-                                currentPlayer.king.y = Y;
-                                if (!kingExposed(currentPlayer.king)) {
-                                    currentPlayer.king.x = 4;
-                                    currentPlayer.king.y = Y;
-                                    if (!kingExposed(currentPlayer.king)) {
-                                        console.log("allow");
-                                        result.valid = true;
-                                        currentPlayer.kingMoved = true;
-                                        let rook = getSquare(1, Y).piece;
-                                        getSquare(1, Y).unsetPiece();
-                                        getSquare(4, Y).setPiece(rook);
-                                        rook.x = 4;
-                                        rook.y = Y;
-                                    }
-                                    else {
-                                        console.log("exposed at 4," + Y);
-                                        currentPlayer.kingMoved = false;
-                                    }
-                                }
-                                else {
-                                    console.log("exposed at 3," + Y);
-                                    currentPlayer.kingMoved = false;
-                                }
+                }
+                else if (movementX == -2) { // Queenside castling
+                    let rookSquare = getSquare(1, Y);
+                    if (rookSquare.piece instanceof Castle && !rookSquare.piece.hasMoved) {
+                        if (getSquare(2, Y).piece == null && getSquare(3, Y).piece == null && getSquare(4, Y).piece == null) {
+                            // Check king doesn't pass through attacked square (d-file)
+                            currentPlayer.king.x = 4;
+                            currentPlayer.king.y = Y;
+                            let passThroughSafe = !kingExposed(currentPlayer.king);
+                            // Check destination square (c-file)
+                            currentPlayer.king.x = 3;
+                            currentPlayer.king.y = Y;
+                            let destSafe = !kingExposed(currentPlayer.king);
+                            // Restore king position
+                            currentPlayer.king.x = savedKingX;
+                            currentPlayer.king.y = savedKingY;
+                            if (passThroughSafe && destSafe) {
+                                result.valid = true;
+                                // Move the rook
+                                let rook = rookSquare.piece;
+                                rookSquare.unsetPiece();
+                                getSquare(4, Y).setPiece(rook);
+                                rook.x = 4;
+                                rook.y = Y;
+                                rook.hasMoved = true;
                             }
                         }
                     }
@@ -613,7 +608,7 @@ let getFenFromPosition = function (sideToMove) {
 
 // Request best move from backend engine
 let requestEngineMove = async function () {
-    if (engineThinking) return;
+    if (engineThinking || gameOver) return;
     engineThinking = true;
     // simple UI feedback
     showEngine('Engine is thinking...');
@@ -697,11 +692,16 @@ let showEnd = function (message) {
     document.getElementById("endMessage").className = "overlay show";
 }
 
+let newGame = function () {
+    location.reload();
+}
+
 let getSquare = function (x, y) {
     return boardSquares[y * 8 + x - 9];
 };
 
 let squareClicked = function (e) {
+    if (gameOver) return;
     let x = Number(this.getAttribute("data-x"));
     let y = Number(this.getAttribute("data-y"));
     let square = getSquare(x, y);
@@ -737,10 +737,14 @@ let squareClicked = function (e) {
 }
 
 let move = function (start, end) {
+
     let piece = start.piece;
     currentPlayer.moved = start.piece;
     let moveResult = piece.isValidMove(end);
     console.log("wut");
+    console.log(piece);
+    // Clear previous check highlights
+    document.querySelectorAll('.check-highlight').forEach(el => el.classList.remove('check-highlight'));
     if (currentPlayer == white) {
         black.checked = false;
         black.king.checkedBy = null;
@@ -779,6 +783,8 @@ let move = function (start, end) {
         }
         else console.log(currentPlayer.king.color + " not exposed");
         end.piece.lastmoved = turn;
+        // Track rook/king movement for castling eligibility
+        if (end.piece instanceof Castle) end.piece.hasMoved = true;
         start.unsetPiece();
         start.deselect();
         selectedSquare = null;
@@ -795,38 +801,132 @@ let move = function (start, end) {
         }
         if (currentPlayer == white) {
             if (end.piece.isValidMove(getSquare(black.king.x, black.king.y), 2).valid) {
-                showError("Check")
                 black.checked = true;
                 black.king.checkedBy = end.piece;
+                getSquare(black.king.x, black.king.y).element.classList.add('check-highlight');
             }
             if (kingExposed(black.king)) {
                 black.checked = true;
+                getSquare(black.king.x, black.king.y).element.classList.add('check-highlight');
                 if (isCheckmate(black.king)) {
-                    showError("Checkmate");
+                    gameOver = true;
+                    if (singlePlayerMode && userSide === 'white') {
+                        showEnd('Checkmate! <b>You Win!</b> 🎉');
+                    } else if (singlePlayerMode && userSide === 'black') {
+                        showEnd('Checkmate! <b>You Lose!</b>');
+                    } else {
+                        showEnd('Checkmate! <b>White wins!</b>');
+                    }
                     return;
                 }
-                showError("Check")
-
             }
 
         }
         else {
             if (end.piece.isValidMove(getSquare(white.king.x, white.king.y), 2).valid) {
-                showError("Check")
                 white.checked = true;
                 white.king.checkedBy = end.piece;
+                getSquare(white.king.x, white.king.y).element.classList.add('check-highlight');
             }
             if (kingExposed(white.king)) {
                 white.checked = true;
+                getSquare(white.king.x, white.king.y).element.classList.add('check-highlight');
                 if (isCheckmate(white.king)) {
-                    showError("Checkmate");
+                    gameOver = true;
+                    if (singlePlayerMode && userSide === 'black') {
+                        showEnd('Checkmate! <b>You Win!</b> 🎉');
+                    } else if (singlePlayerMode && userSide === 'white') {
+                        showEnd('Checkmate! <b>You Lose!</b>');
+                    } else {
+                        showEnd('Checkmate! <b>Black wins!</b>');
+                    }
                     return;
                 }
-                showError("Check")
-
             }
 
         }
+        //edited here
+        let moveList = document.getElementById("moveList");
+
+        if (moveList) {
+
+            let notation = "";
+
+            // 🔹 Detect castling FIRST
+            if (piece.type === "king" && Math.abs(end.x - start.x) === 2) {
+
+                if (end.x > start.x) {
+                    notation = "O-O";        // king side
+                } else {
+                    notation = "O-O-O";      // queen side
+                }
+
+            } else {
+
+                let pieceLetter = "";
+
+                switch (piece.type) {
+                    case "knight": pieceLetter = "N"; break;
+                    case "bishop": pieceLetter = "B"; break;
+                    case "castle": pieceLetter = "R"; break;
+                    case "queen": pieceLetter = "Q"; break;
+                    case "king": pieceLetter = "K"; break;
+                }
+
+                let file = String.fromCharCode(96 + end.x);
+                let rank = end.y;
+
+                let captureSymbol = moveResult.capture ? "x" : "";
+
+                // pawn capture format (exd5)
+                if (piece.type === "pawn" && moveResult.capture) {
+                    let fromFile = String.fromCharCode(96 + start.x);
+                    pieceLetter = fromFile;
+                }
+
+                notation = pieceLetter + captureSymbol + file + rank;
+            }
+
+            if (black.checked || white.checked) notation += "+";
+
+            if (currentPlayer === white) {
+
+                let li = document.createElement("li");
+
+                let whiteSpan = document.createElement("span");
+                whiteSpan.className = "white-move";
+                whiteSpan.textContent = notation;
+
+                let blackSpan = document.createElement("span");
+                blackSpan.className = "black-move";
+
+                li.appendChild(whiteSpan);
+                li.appendChild(blackSpan);
+
+                moveList.appendChild(li);
+
+            } else {
+
+                let lastMove = moveList.lastElementChild;
+                if (lastMove) {
+                    let blackSpan = lastMove.querySelector(".black-move");
+                    if (blackSpan) {
+                        blackSpan.textContent = notation;
+                    }
+                }
+            }
+
+            moveList.scrollTop = moveList.scrollHeight;
+        }
+        // Remove previous last-move highlights
+        document.querySelectorAll(".last-move").forEach(sq => {
+            sq.classList.remove("last-move");
+        });
+
+        // Highlight current move squares
+        start.element.classList.add("last-move");
+        end.element.classList.add("last-move");
+
         nextTurn();
     } else {
         showError("That is an invalid move!");
@@ -837,8 +937,6 @@ let move = function (start, end) {
 }
 
 let isCheckmate = function (king) {
-    console.log("test");
-    //let otherPlayer = currentPlayer==white?black:white;
     let myPlayer = currentPlayer;
     let otherPlayer = currentPlayer == white ? black : white;
     currentPlayer = otherPlayer;
@@ -846,277 +944,70 @@ let isCheckmate = function (king) {
         currentPlayer = myPlayer;
         return false;
     }
-    console.log(currentPlayer)
-    //check if there is any open squares next to the king
-    for (let i = -1; i < 2; i++) {
-        for (let j = -1; j < 2; j++) {
-            if (king.x + i <= 8 && king.x + i >= 1) {
-                if (king.y + j <= 8 && king.y + j >= 1) {
-                    console.log(i, j);
-                    if (i != 0 || j != 0) {
-                        console.log(king.x + i, king.y + j);
-                        //console.log(getSquare(king.x+i,king.y+j));
-                        //console.log(getSquare(king.x+i,king.y+j).piece);
-                        if (getSquare(king.x + i, king.y + j).piece != null && getSquare(king.x + i, king.y + j).piece.color == currentPlayer.color) {
-                            console.log("full");
-                            continue;
-                        }
-                        let square = getSquare(king.x + i, king.y + j);
-                        if (king.isValidMove(square).valid) {
-                            console.log("valid?");
-                            //square.unsetPiece(king);
-                            let oldsquare = getSquare(king.x, king.y);
-                            // preserve any piece on destination so we can restore after simulation
-                            let capturedOnDest = square.piece;
-                            if (capturedOnDest) capturedOnDest.captured = true;
-                            // move king to candidate square (simulate)
-                            oldsquare.unsetPiece();
-                            square.setPiece(king);
-                            let kingId = king.color == "white" ? 0 : 1;
-                            pieces[kingId].x = king.x + i;
-                            pieces[kingId].y = king.y + j;
-                            if (!kingExposed(currentPlayer.king)) {
-                                console.log("open square at " + (king.x), (king.y))
-                                // restore board
-                                if (capturedOnDest) square.setPiece(capturedOnDest); else square.unsetPiece();
-                                oldsquare.setPiece(king);
-                                pieces[kingId].x = oldsquare.x;
-                                pieces[kingId].y = oldsquare.y;
-                                if (capturedOnDest) capturedOnDest.captured = false;
-                                currentPlayer = myPlayer;
-                                return false;
-                            }
-                            else console.log(currentPlayer.king.color + " king exposed at " + (king.x + i) + (king.y + j));
-                            // restore board after failed simulation
-                            if (capturedOnDest) square.setPiece(capturedOnDest); else square.unsetPiece();
-                            oldsquare.setPiece(king);
-                            pieces[kingId].x = oldsquare.x;
-                            pieces[kingId].y = oldsquare.y;
-                            if (capturedOnDest) capturedOnDest.captured = false;
-                        }
-                        else console.log("not valid at " + (king.x + i), (king.y + j));
-                    }
-                    else console.log("i==0,j==0");
-                }
-                else console.log("yy");
-            }
-            else console.log("xx");
-        }
-    }
-    console.log("fine");
-    //check if you can kill the attacking piece
+
+    // Try every friendly piece on every possible target square.
+    // If ANY move results in the king no longer being exposed, it's not checkmate.
     for (let i = 0; i < pieces.length; i++) {
-        if (currentPlayer.color == pieces[i].color) {
-            if (pieces[i].isValidMove(getSquare(king.checkedBy.x, king.checkedBy.y), 2).valid) {
-                console.log(pieces[i]);
-                console.log("can kill");
-                console.log(king.checkedBy);
-                currentPlayer = myPlayer;
-                return false;
+        if (pieces[i].captured) continue;
+        if (pieces[i].color != currentPlayer.color) continue;
+
+        let piece = pieces[i];
+        let origX = piece.x;
+        let origY = piece.y;
+        let origSquare = getSquare(origX, origY);
+
+        // Try every square on the board as a destination
+        for (let tx = 1; tx <= 8; tx++) {
+            for (let ty = 1; ty <= 8; ty++) {
+                let targetSquare = getSquare(tx, ty);
+                if (!targetSquare) continue;
+
+                let moveResult = piece.isValidMove(targetSquare, 2);
+                if (!moveResult.valid) continue;
+
+                // Simulate the move
+                let capturedPiece = targetSquare.piece;
+                if (capturedPiece) capturedPiece.captured = true;
+
+                origSquare.unsetPiece();
+                targetSquare.setPiece(piece);
+                piece.x = tx;
+                piece.y = ty;
+
+                // Handle capture via en passant (capture square differs from target)
+                let enPassantCaptured = null;
+                if (moveResult.capture && moveResult.capture !== targetSquare) {
+                    enPassantCaptured = moveResult.capture.piece;
+                    if (enPassantCaptured) enPassantCaptured.captured = true;
+                    moveResult.capture.unsetPiece();
+                }
+
+                let stillExposed = kingExposed(currentPlayer.king);
+
+                // Undo the simulation
+                if (enPassantCaptured) {
+                    moveResult.capture.setPiece(enPassantCaptured);
+                    enPassantCaptured.captured = false;
+                }
+                targetSquare.unsetPiece();
+                if (capturedPiece) {
+                    targetSquare.setPiece(capturedPiece);
+                    capturedPiece.captured = false;
+                }
+                origSquare.setPiece(piece);
+                piece.x = origX;
+                piece.y = origY;
+
+                if (!stillExposed) {
+                    currentPlayer = myPlayer;
+                    return false; // Found a legal move — not checkmate
+                }
             }
         }
     }
-    console.log("fine2");
-    //check if you can block the attacking piece
-    if (king.checkedBy instanceof Knight) { currentPlayer = myPlayer; return true; }
-    for (let i = 0; i < pieces.length; i++) {
-        if (pieces[i].captured == true) continue;
-        if (currentPlayer.color == pieces[i].color) {
-            if (pieces[i] instanceof Pawn) {
-                for (let dir = 1; dir <= 2; dir++) {
-                    let direction = currentPlayer.color == "white" ? -1 : 1;
-                    let square = getSquare(pieces[i].x, pieces[i].y + direction * dir)
-                    console.log(square);
-                    if (pieces[i].isValidMove(square, 2).valid) {
-                        console.log(pieces[i]);
-                        console.log(" to " + pieces[i].x, pieces[i].y + direction * dir + " valid ");
-                        console.log(getSquare(pieces[i].x, pieces[i].y + direction * dir));
-                        square.setPiece(pieces[i]);
-                    }
-                    else continue;
-                    console.log(pieces[i].x, pieces[i].y);
-                    if (!kingExposed(currentPlayer.king)) {
-                        console.log("prevent checkmate with ");
-                        console.log(pieces[i]);
-                        square.unsetPiece(pieces[i]);
-                        currentPlayer = myPlayer;
-                        return false;
-                    }
-                    else console.log(currentPlayer.king.color + " king still exposed");
-                    square.unsetPiece(pieces[i]);
-                }
-            }
-            else if (pieces[i] instanceof Knight) {
-                for (let dir = 1; dir <= 2; dir++) {
-                    let square = getSquare(pieces[i].x + (3 - dir), pieces[i].y + dir)
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                    square = getSquare(pieces[i].x + (3 - dir), pieces[i].y - dir)
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                    square = getSquare(pieces[i].x - dir, pieces[i].y + (3 - dir))
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                    square = getSquare(pieces[i].x - dir, pieces[i].y - (3 - dir))
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                }
-            }
-            else if (pieces[i] instanceof Castle) {
-                for (let k = -8; k <= 8; k++) {
-                    if (pieces[i].x + k >= 1 && pieces[i].x + k <= 8 && pieces[i].y + k >= 1 && pieces[i].y + k <= 8) {
-                        let square = getSquare(pieces[i].x + k, pieces[i].y);
-                        if (pieces[i].isValidMove(square, 2).valid) {
-                            square.setPiece(pieces[i]);
-                            if (!kingExposed(currentPlayer.king)) {
-                                console.log("prevent checkmate with ");
-                                console.log(pieces[i]);
-                                currentPlayer = myPlayer;
-                                square.unsetPiece(pieces[i]);
-                                return false;
-                            }
-                            square.unsetPiece(pieces[i]);
-                        }
-                        square = getSquare(pieces[i].x, pieces[i].y + k);
-                        if (pieces[i].isValidMove(square, 2).valid) {
-                            square.setPiece(pieces[i]);
-                            if (!kingExposed(currentPlayer.king)) {
-                                console.log("prevent checkmate with ");
-                                console.log(pieces[i]);
-                                currentPlayer = myPlayer;
-                                square.unsetPiece(pieces[i]);
-                                return false;
-                            }
-                            square.unsetPiece(pieces[i]);
-                        }
-                    }
-                }
-            }
-            else if (pieces[i] instanceof Bishop) {
-                for (let k = -8; k <= 8; k++) {
-                    let square = getSquare(pieces[i].x + k, pieces[i].y + k);
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                    square = getSquare(pieces[i].x + k, pieces[i].y - k);
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                }
-            }
-            else if (pieces[i] instanceof Queen) {
-                for (let k = -8; k <= 8; k++) {
-                    let square = getSquare(pieces[i].x + k, pieces[i].y + k);
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                    square = getSquare(pieces[i].x + k, pieces[i].y - k);
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                }
-                for (let k = -8; k <= 8; k++) {
-                    let square = getSquare(pieces[i].x + k, pieces[i].y + k)
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                    square = getSquare(pieces[i].x + k, pieces[i].y - k)
-                    if (square != null && pieces[i].isValidMove(square, 2).valid) {
-                        square.setPiece(pieces[i]);
-                        if (!kingExposed(currentPlayer.king)) {
-                            console.log("prevent checkmate with ");
-                            console.log(pieces[i]);
-                            currentPlayer = myPlayer;
-                            square.unsetPiece(pieces[i]);
-                            return false;
-                        }
-                        square.unsetPiece(pieces[i]);
-                    }
-                }
-            }
-            else console.log(pieces[i]);
-        }
-    }
-    console.log("fine3");
-    console.log("---------");
+
     currentPlayer = myPlayer;
-    return true;
+    return true; // No legal move escapes check — checkmate
 };
 
 
@@ -1237,5 +1128,14 @@ let nextTurn = function () {
         setTimeout(() => {
             requestEngineMove();
         }, 250);
+    }
+    let turnLabel = document.querySelector("#turnInfo b");
+
+    if (currentPlayer === white) {
+        turnLabel.classList.remove("turn-black");
+        turnLabel.classList.add("turn-white");
+    } else {
+        turnLabel.classList.remove("turn-white");
+        turnLabel.classList.add("turn-black");
     }
 }

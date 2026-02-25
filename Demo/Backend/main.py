@@ -15,7 +15,7 @@ except Exception:
 class BestMoveRequest(BaseModel):
 	fen: str
 	side: Optional[str] = None
-	depth: Optional[int] = 3
+	depth: Optional[int] = 4
 
 
 app = FastAPI(title="Checkmate Engine API")

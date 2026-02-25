@@ -2,11 +2,11 @@ from copy import deepcopy
 from typing import Optional, List, Tuple, Dict
 
 PIECE_VALUES = {
-    'P': 1, 'p': 1,  # Pawn
-    'N': 3, 'n': 3,  # Knight
-    'B': 3, 'b': 3,  # Bishop
-    'R': 5, 'r': 5,  # Rook
-    'Q': 9, 'q': 9,  # Queen
+    'P': 100, 'p': 100,  # Pawn
+    'N': 320, 'n': 320,  # Knight
+    'B': 330, 'b': 330,  # Bishop
+    'R': 500, 'r': 500,  # Rook
+    'Q': 900, 'q': 900,  # Queen
     'K': 0, 'k': 0  # King
 }
 
@@ -218,7 +218,7 @@ class ChessBoard:
                 raise ValueError('Each FEN rank must expand to 8 squares')
             new_board.append(row)
 
-        # FEN ranks go from rank 8 -> rank 1; our board rows are 0->7 top->bottom, so assignment is direct
+        # FEN ranks go from rank 8 -> rank 1; reverse to match internal board layout
         self.board = new_board[::-1]
         self.move_history = []
         # set forced turn
@@ -338,7 +338,7 @@ class ChessBoard:
             # simulate move
             self.board[r2][c2] = moving_piece
             self.board[r1][c1] = None
-            self.move_history.append((from_pos, to_pos))
+            self.move_history.append((from_pos, to_pos, captured))
 
             # find king position for the side that just moved
             side = turn
@@ -392,9 +392,17 @@ class ChessBoard:
         if (r2, c2) not in self.get_valid_moves(r1, c1):
             return False
 
+        captured = self.board[r2][c2]
         self.board[r2][c2] = piece
         self.board[r1][c1] = None
-        self.move_history.append((from_pos, to_pos))
+        self.move_history.append((from_pos, to_pos, captured))
+
+        # Auto-promote pawns to queen
+        if piece == 'P' and r2 == 0:
+            self.board[r2][c2] = 'Q'
+        elif piece == 'p' and r2 == 7:
+            self.board[r2][c2] = 'q'
+
         return True
 
     def undo_move(self) -> bool:
@@ -402,19 +410,21 @@ class ChessBoard:
         if not self.move_history:
             return False
 
-        from_pos, to_pos = self.move_history.pop()
+        from_pos, to_pos, captured = self.move_history.pop()
         r1, c1 = from_pos
         r2, c2 = to_pos
 
         piece = self.board[r2][c2]
         self.board[r1][c1] = piece
-        self.board[r2][c2] = None
+        self.board[r2][c2] = captured
         return True
 
     def evaluate(self) -> int:
         """Evaluate board position. Positive = White advantage, Negative = Black advantage."""
         score = 0
 
+        white_moves = 0
+        black_moves = 0
         for r in range(8):
             for c in range(8):
                 piece = self.board[r][c]
@@ -427,8 +437,13 @@ class ChessBoard:
 
                 if self.is_white_piece(piece):
                     score += base_value + pst_value
+                    white_moves += len(self.get_valid_moves(r, c))
                 else:
                     score -= base_value + pst_value
+                    black_moves += len(self.get_valid_moves(r, c))
+
+        # Mobility bonus: 2 centipawns per available move
+        score += 2 * (white_moves - black_moves)
 
         return score
 
@@ -452,13 +467,14 @@ class ChessEngine:
         self.board = board if board else ChessBoard()
         self.nodes_evaluated = 0
         self.max_depth_reached = 0
+        self.max_depth_target = 0
 
     def reset(self):
         """Reset engine state."""
         self.nodes_evaluated = 0
         self.max_depth_reached = 0
 
-    def minimax(self, depth: int, alpha: int = -10000, beta: int = 10000, maximizing: bool = True) -> int:
+    def minimax(self, depth: int, alpha: int = -100000, beta: int = 100000, maximizing: bool = True) -> int:
         """
         Minimax algorithm with alpha-beta pruning.
 
@@ -471,6 +487,7 @@ class ChessEngine:
         Returns:
             Evaluation score
         """
+        self.max_depth_reached = max(self.max_depth_reached, self.max_depth_target - depth)
         if depth == 0:
             self.nodes_evaluated += 1
             return self.board.evaluate()
@@ -478,18 +495,24 @@ class ChessEngine:
         legal_moves = self.board.get_all_legal_moves()
 
         if not legal_moves:
-            return 9999 if maximizing else -9999
+            return 100000 if maximizing else -100000
 
         legal_moves.sort(key=lambda move: self._move_priority(move), reverse=True)
 
         if maximizing:
-            max_eval = -10000
+            max_eval = -100000
             for from_pos, to_pos in legal_moves:
                 piece = self.board.board[from_pos[0]][from_pos[1]]
                 captured = self.board.board[to_pos[0]][to_pos[1]]
                 self.board.board[to_pos[0]][to_pos[1]] = piece
                 self.board.board[from_pos[0]][from_pos[1]] = None
-                self.board.move_history.append((from_pos, to_pos))
+                self.board.move_history.append((from_pos, to_pos, captured))
+
+                # Auto-promote pawns to queen during search
+                if piece == 'P' and to_pos[0] == 0:
+                    self.board.board[to_pos[0]][to_pos[1]] = 'Q'
+                elif piece == 'p' and to_pos[0] == 7:
+                    self.board.board[to_pos[0]][to_pos[1]] = 'q'
 
                 eval_score = self.minimax(depth - 1, alpha, beta, False)
                 max_eval = max(eval_score, max_eval)
@@ -504,13 +527,19 @@ class ChessEngine:
 
             return max_eval
         else:
-            min_eval = 10000
+            min_eval = 100000
             for from_pos, to_pos in legal_moves:
                 piece = self.board.board[from_pos[0]][from_pos[1]]
                 captured = self.board.board[to_pos[0]][to_pos[1]]
                 self.board.board[to_pos[0]][to_pos[1]] = piece
                 self.board.board[from_pos[0]][from_pos[1]] = None
-                self.board.move_history.append((from_pos, to_pos))
+                self.board.move_history.append((from_pos, to_pos, captured))
+
+                # Auto-promote pawns to queen during search
+                if piece == 'P' and to_pos[0] == 0:
+                    self.board.board[to_pos[0]][to_pos[1]] = 'Q'
+                elif piece == 'p' and to_pos[0] == 7:
+                    self.board.board[to_pos[0]][to_pos[1]] = 'q'
 
                 eval_score = self.minimax(depth - 1, alpha, beta, True)
                 min_eval = min(eval_score, min_eval)
@@ -544,6 +573,7 @@ class ChessEngine:
             Tuple of (from_pos, to_pos) or None if no legal moves
         """
         self.reset()
+        self.max_depth_target = depth
         legal_moves = self.board.get_all_legal_moves()
 
         if not legal_moves:
@@ -551,17 +581,23 @@ class ChessEngine:
 
         turn = self.board.get_current_turn()
         best_move = None
-        best_value = -10000 if turn == 'white' else 10000
+        best_value = -100000 if turn == 'white' else 100000
 
         for from_pos, to_pos in legal_moves:
             piece = self.board.board[from_pos[0]][from_pos[1]]
             captured = self.board.board[to_pos[0]][to_pos[1]]
             self.board.board[to_pos[0]][to_pos[1]] = piece
             self.board.board[from_pos[0]][from_pos[1]] = None
-            self.board.move_history.append((from_pos, to_pos))
+            self.board.move_history.append((from_pos, to_pos, captured))
 
-            # pass True for maximizing when White is to move
-            value = self.minimax(depth - 1, -10000, 10000, turn == 'white')
+            # Auto-promote pawns to queen
+            if piece == 'P' and to_pos[0] == 0:
+                self.board.board[to_pos[0]][to_pos[1]] = 'Q'
+            elif piece == 'p' and to_pos[0] == 7:
+                self.board.board[to_pos[0]][to_pos[1]] = 'q'
+
+            # After making a move for current side, the NEXT side evaluates
+            value = self.minimax(depth - 1, -100000, 100000, turn != 'white')
 
             self.board.move_history.pop()
             self.board.board[from_pos[0]][from_pos[1]] = piece
