@@ -1,9 +1,9 @@
-opencv-python
-numpy
-torch
-torchvision
-Pillow
-pyautogui
+# opencv-python
+# numpy
+# torch
+# torchvision
+# Pillow
+# pyautogui
 fastapi
 uvicorn[standard]
 pydantic
