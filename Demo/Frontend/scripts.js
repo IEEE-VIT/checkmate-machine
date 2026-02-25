@@ -623,7 +623,7 @@ let requestEngineMove = async function () {
     // Build FEN for the side that will move (engine)
     let fen = getFenFromPosition(engineSide);
     try {
-        let resp = await fetch('http://localhost:8000/engine/best_move', {
+        let resp = await fetch('https://checkmate-machine.onrender.com/engine/best_move', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fen: fen, side: engineSide, depth: 3 })
