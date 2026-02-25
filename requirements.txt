@@ -4,3 +4,6 @@ torch
 torchvision
 Pillow
 pyautogui
+fastapi
+uvicorn[standard]
+pydantic
