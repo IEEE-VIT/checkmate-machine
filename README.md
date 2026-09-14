@@ -40,6 +40,17 @@ pip install -r requirements.txt
 uvicorn Demo.Backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+The backend allows `http://localhost:3000` and `http://127.0.0.1:3000` by default.
+For another frontend origin, set `CORS_ORIGINS` to a comma-separated list before starting the server:
+
+```bash
+# Windows PowerShell
+$env:CORS_ORIGINS = "https://checkmate-machine.pages.dev,http://localhost:3000"
+uvicorn Demo.Backend.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Requests from origins outside this list are blocked by CORS and logged by the backend with configuration guidance.
+
 4) Serve the frontend (static)
 
 ```bash
