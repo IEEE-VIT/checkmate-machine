@@ -463,11 +463,19 @@ class ChessEngine:
             return min_eval
 
     def _move_priority(self, move: Tuple[Tuple[int, int], Tuple[int, int]]) -> int:
-        """Score move for better move ordering (captures first)."""
+        """Score move for better move ordering using MVV-LVA (Most Valuable Victim,
+        Least Valuable Attacker). Captures are ranked by victim value first, then by
+        preferring the cheapest attacker for a given victim, so strong cutoffs (e.g.
+        a pawn taking a queen) are searched before weaker ones (e.g. queen takes queen).
+        Quiet moves sort last with priority 0.
+        """
         from_pos, to_pos = move
         target = self.board.board[to_pos[0]][to_pos[1]]
         if target:
-            return PIECE_VALUES[target.lower()]
+            attacker = self.board.board[from_pos[0]][from_pos[1]]
+            victim_value = PIECE_VALUES[target.lower()]
+            attacker_value = PIECE_VALUES[attacker.lower()] if attacker else 0
+            return victim_value * 10 - attacker_value
         return 0
 
     def find_best_move(self, depth: int) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
@@ -490,6 +498,14 @@ class ChessEngine:
         best_move = None
         best_value = -10000 if turn == 'white' else 10000
 
+        legal_moves.sort(key=lambda move: self._move_priority(move), reverse=True)
+
+        # Track a running alpha (white) / beta (black) across sibling root moves so
+        # later branches inherit the tightest bound found so far. This doesn't change
+        # which move is judged best (every root child is still fully explored and
+        # correctly ranked), it only lets deeper subtrees cut off sooner.
+        alpha, beta = -10000, 10000
+
         for from_pos, to_pos in legal_moves:
             piece = self.board.board[from_pos[0]][from_pos[1]]
             captured = self.board.board[to_pos[0]][to_pos[1]]
@@ -497,7 +513,7 @@ class ChessEngine:
             self.board.board[from_pos[0]][from_pos[1]] = None
             self.board.move_history.append((from_pos, to_pos))
 
-            value = self.minimax(depth - 1, -10000, 10000, turn == 'black')
+            value = self.minimax(depth - 1, alpha, beta, turn == 'black')
 
             self.board.move_history.pop()
             self.board.board[from_pos[0]][from_pos[1]] = piece
@@ -506,10 +522,13 @@ class ChessEngine:
             if turn == 'white' and value > best_value:
                 best_value = value
                 best_move = (from_pos, to_pos)
+                alpha = max(alpha, best_value)
             elif turn == 'black' and value < best_value:
                 best_value = value
                 best_move = (from_pos, to_pos)
+                beta = min(beta, best_value)
 
+        self.max_depth_reached = depth
         return best_move
 
     def get_engine_stats(self) -> Dict:
