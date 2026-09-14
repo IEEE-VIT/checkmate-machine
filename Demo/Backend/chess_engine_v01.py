@@ -218,8 +218,11 @@ class ChessBoard:
                 raise ValueError('Each FEN rank must expand to 8 squares')
             new_board.append(row)
 
-        # FEN ranks go from rank 8 -> rank 1; reverse to match internal board layout
-        self.board = new_board[::-1]
+        # FEN ranks go from rank 8 -> rank 1; internal board rows are 0->7 top->bottom
+        # (row 0 = rank 8, row 7 = rank 1 - see __init__'s starting layout), so the
+        # parsed ranks map directly with no reversal. Reversing here silently flips
+        # the board upside down and swaps which side's pieces land on which rows.
+        self.board = new_board
         self.move_history = []
         # set forced turn
         # Record the starting side (useful so get_current_turn alternates during search).
@@ -555,11 +558,17 @@ class ChessEngine:
             return min_eval
 
     def _move_priority(self, move: Tuple[Tuple[int, int], Tuple[int, int]]) -> int:
-        """Score move for better move ordering (captures first)."""
+        """Score move for better move ordering using MVV-LVA (Most Valuable Victim,
+        Least Valuable Attacker), so the strongest capture cutoffs (e.g. a pawn
+        taking a queen) are searched before weaker ones (e.g. queen takes queen).
+        """
         from_pos, to_pos = move
         target = self.board.board[to_pos[0]][to_pos[1]]
         if target:
-            return PIECE_VALUES[target.lower()]
+            attacker = self.board.board[from_pos[0]][from_pos[1]]
+            victim_value = PIECE_VALUES[target.lower()]
+            attacker_value = PIECE_VALUES[attacker.lower()] if attacker else 0
+            return victim_value * 10 - attacker_value
         return 0
 
     def find_best_move(self, depth: int) -> Optional[Tuple[Tuple[int, int], Tuple[int, int]]]:
@@ -583,6 +592,14 @@ class ChessEngine:
         best_move = None
         best_value = -100000 if turn == 'white' else 100000
 
+        legal_moves.sort(key=lambda move: self._move_priority(move), reverse=True)
+
+        # Track a running alpha (white) / beta (black) across sibling root moves so
+        # later branches inherit the tightest bound found so far. This doesn't change
+        # which move is judged best (every root child is still fully explored and
+        # correctly ranked), it only lets deeper subtrees cut off sooner.
+        alpha, beta = -100000, 100000
+
         for from_pos, to_pos in legal_moves:
             piece = self.board.board[from_pos[0]][from_pos[1]]
             captured = self.board.board[to_pos[0]][to_pos[1]]
@@ -597,7 +614,7 @@ class ChessEngine:
                 self.board.board[to_pos[0]][to_pos[1]] = 'q'
 
             # After making a move for current side, the NEXT side evaluates
-            value = self.minimax(depth - 1, -100000, 100000, turn != 'white')
+            value = self.minimax(depth - 1, alpha, beta, turn != 'white')
 
             self.board.move_history.pop()
             self.board.board[from_pos[0]][from_pos[1]] = piece
@@ -606,9 +623,11 @@ class ChessEngine:
             if turn == 'white' and value > best_value:
                 best_value = value
                 best_move = (from_pos, to_pos)
+                alpha = max(alpha, best_value)
             elif turn == 'black' and value < best_value:
                 best_value = value
                 best_move = (from_pos, to_pos)
+                beta = min(beta, best_value)
 
         return best_move
 
