@@ -153,12 +153,15 @@ class ChessBoard:
         self.nodes_evaluated = 0
         # Optional override for side-to-move (None => infer from move_history)
         self.forced_turn: Optional[str] = None
+        self.starting_turn: Optional[str] = None
 
     def copy(self):
         """Create a deep copy of the board state."""
         new_board = ChessBoard()
         new_board.board = deepcopy(self.board)
         new_board.move_history = self.move_history.copy()
+        new_board.forced_turn = self.forced_turn
+        new_board.starting_turn = self.starting_turn
         return new_board
 
     def is_white_piece(self, piece: Optional[str]) -> bool:
@@ -171,6 +174,11 @@ class ChessBoard:
 
     def get_current_turn(self) -> str:
         """Return whose turn it is: 'white' or 'black'."""
+        if self.starting_turn in ('white', 'black'):
+            if len(self.move_history) % 2 == 0:
+                return self.starting_turn
+            return 'black' if self.starting_turn == 'white' else 'white'
+
         if self.forced_turn in ('white', 'black'):
             return self.forced_turn
 
@@ -215,11 +223,12 @@ class ChessBoard:
         self.move_history = []
         # set forced turn
         if side in ('white', 'black'):
-            self.forced_turn = side
+            self.starting_turn = side
         elif fen_side in ('white', 'black'):
-            self.forced_turn = fen_side
+            self.starting_turn = fen_side
         else:
-            self.forced_turn = None
+            self.starting_turn = None
+        self.forced_turn = None
 
     def get_valid_moves(self, row: int, col: int) -> List[Tuple[int, int]]:
         """Get all valid moves for piece at (row, col)."""
@@ -251,7 +260,8 @@ class ChessBoard:
                         moves.append((nr, nc))
 
         elif piece_type == 'n':
-            knight_moves = [(-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)]
+            knight_moves = [(-2, -1), (-2, 1), (-1, -2),
+                            (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)]
             for dr, dc in knight_moves:
                 nr, nc = row + dr, col + dc
                 if 0 <= nr < 8 and 0 <= nc < 8:
@@ -262,7 +272,8 @@ class ChessBoard:
                         moves.append((nr, nc))
 
         elif piece_type == 'k':
-            king_moves = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+            king_moves = [(-1, -1), (-1, 0), (-1, 1), (0, -1),
+                          (0, 1), (1, -1), (1, 0), (1, 1)]
             for dr, dc in king_moves:
                 nr, nc = row + dr, col + dc
                 if 0 <= nr < 8 and 0 <= nc < 8:
@@ -278,7 +289,8 @@ class ChessBoard:
             elif piece_type == 'r':
                 directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
             else:  # queen
-                directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+                directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1),
+                              (0, 1), (1, -1), (1, 0), (1, 1)]
 
             for dr, dc in directions:
                 nr, nc = row + dr, col + dc
@@ -417,7 +429,8 @@ class ChessEngine:
         if not legal_moves:
             return 9999 if maximizing else -9999
 
-        legal_moves.sort(key=lambda move: self._move_priority(move), reverse=True)
+        legal_moves.sort(
+            key=lambda move: self._move_priority(move), reverse=True)
 
         if maximizing:
             max_eval = -10000
@@ -498,7 +511,8 @@ class ChessEngine:
         best_move = None
         best_value = -10000 if turn == 'white' else 10000
 
-        legal_moves.sort(key=lambda move: self._move_priority(move), reverse=True)
+        legal_moves.sort(
+            key=lambda move: self._move_priority(move), reverse=True)
 
         # Track a running alpha (white) / beta (black) across sibling root moves so
         # later branches inherit the tightest bound found so far. This doesn't change
@@ -600,12 +614,14 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         fen_input = sys.argv[1]
         side_input = sys.argv[2] if len(sys.argv) > 2 else ''
-        depth = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else 3
+        depth = int(sys.argv[3]) if len(
+            sys.argv) > 3 and sys.argv[3].isdigit() else 3
     else:
         fen_input = input("Enter FEN (leave blank for startpos): ").strip()
         if not fen_input:
             fen_input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-        side_input = input("Side to move (white/black) [leave blank to use FEN]: ").strip().lower()
+        side_input = input(
+            "Side to move (white/black) [leave blank to use FEN]: ").strip().lower()
         depth_input = input("Search depth (default 3): ").strip()
         depth = int(depth_input) if depth_input.isdigit() else 3
 
@@ -625,8 +641,10 @@ if __name__ == "__main__":
     else:
         chosen_side = 'white'
 
-    print(f"Setting position from FEN and searching for best move for: {chosen_side} (depth={depth})")
-    best, stats = find_best_move_for_fen(fen_input, side_input=chosen_side, depth=depth)
+    print(
+        f"Setting position from FEN and searching for best move for: {chosen_side} (depth={depth})")
+    best, stats = find_best_move_for_fen(
+        fen_input, side_input=chosen_side, depth=depth)
 
     if best:
         (r1, c1), (r2, c2) = best
