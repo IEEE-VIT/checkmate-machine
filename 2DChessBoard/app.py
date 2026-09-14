@@ -8,6 +8,18 @@ from PIL import Image
 import pyautogui  # For screen capture
 from pathlib import Path
 import time
+import importlib.util
+
+
+ENGINE_PATH = Path(__file__).resolve().parent.parent / \
+    'Chess Engine' / 'chess_engine_v01.py'
+ENGINE_SPEC = importlib.util.spec_from_file_location(
+    'checkmate_engine', ENGINE_PATH)
+if ENGINE_SPEC is None or ENGINE_SPEC.loader is None:
+    raise ImportError(f'Could not load chess engine from {ENGINE_PATH}')
+ENGINE_MODULE = importlib.util.module_from_spec(ENGINE_SPEC)
+ENGINE_SPEC.loader.exec_module(ENGINE_MODULE)
+find_best_move_for_fen = ENGINE_MODULE.find_best_move_for_fen
 
 
 class ChessPieceCNN(nn.Module):
@@ -53,7 +65,8 @@ def find_chessboard_corners(img):
     gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
     blur = cv.GaussianBlur(gray, (5, 5), 0)
     edges = cv.Canny(blur, 50, 150)
-    contours, _ = cv.findContours(edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv.findContours(
+        edges, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
     if not contours:
         return None
@@ -77,7 +90,8 @@ def extract_chessboard(img, corners):
     Applies perspective transform to extract the chessboard.
     Returns 800x800 warped board image.
     """
-    dst_points = np.array([[0, 0], [799, 0], [799, 799], [0, 799]], dtype="float32")
+    dst_points = np.array(
+        [[0, 0], [799, 0], [799, 799], [0, 799]], dtype="float32")
     M = cv.getPerspectiveTransform(corners, dst_points)
     warped_board = cv.warpPerspective(img, M, (800, 800))
     return warped_board
@@ -94,9 +108,9 @@ def split_board_into_squares(warped_board):
     for row in range(8):
         for col in range(8):
             square_img = warped_board[
-                         row * square_size:(row + 1) * square_size,
-                         col * square_size:(col + 1) * square_size
-                         ]
+                row * square_size:(row + 1) * square_size,
+                col * square_size:(col + 1) * square_size
+            ]
             squares.append(square_img)
 
     return squares
@@ -112,7 +126,8 @@ def preprocess_square(square_img, target_size=(64, 64)):
 
     # Resize if needed
     if square_rgb.shape[:2] != target_size:
-        square_rgb = cv.resize(square_rgb, target_size, interpolation=cv.INTER_AREA)
+        square_rgb = cv.resize(square_rgb, target_size,
+                               interpolation=cv.INTER_AREA)
 
     # Convert to PIL Image for torchvision transforms
     pil_img = Image.fromarray(square_rgb)
@@ -139,13 +154,15 @@ class ChessPieceClassifier:
             class_names: List of class names in the same order as training
             device: 'cuda' or 'cpu'
         """
-        self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device(
+            device if torch.cuda.is_available() else 'cpu')
         self.class_names = class_names
 
         # Load model
         num_classes = len(class_names)
         self.model = ChessPieceCNN(num_classes).to(self.device)
-        self.model.load_state_dict(torch.load(model_path, map_location=self.device))
+        self.model.load_state_dict(torch.load(
+            model_path, map_location=self.device))
         self.model.eval()
 
         print(f"Model loaded successfully on {self.device}")
@@ -161,7 +178,8 @@ class ChessPieceClassifier:
         """
         # Preprocess image
         tensor_img = preprocess_square(square_img)
-        tensor_img = tensor_img.unsqueeze(0).to(self.device)  # Add batch dimension
+        tensor_img = tensor_img.unsqueeze(0).to(
+            self.device)  # Add batch dimension
 
         # Inference
         with torch.no_grad():
@@ -185,7 +203,8 @@ class ChessPieceClassifier:
             predictions: List of (class_name, confidence) tuples
         """
         # Preprocess all squares
-        tensor_batch = torch.stack([preprocess_square(img) for img in square_images])
+        tensor_batch = torch.stack([preprocess_square(img)
+                                   for img in square_images])
         tensor_batch = tensor_batch.to(self.device)
 
         # Batch inference
@@ -217,6 +236,7 @@ def class_to_fen_char(class_name):
         'wk': 'K', 'wq': 'Q', 'wr': 'R', 'wb': 'B', 'wn': 'N', 'wp': 'P',
         'bk': 'k', 'bq': 'q', 'br': 'r', 'bb': 'b', 'bn': 'n', 'bp': 'p',
         'empty': None,
+        'e': None,
         '': None  # In case of empty string
     }
 
@@ -319,8 +339,10 @@ def detect_board_orientation(predictions):
                 scores['black'] += 2
 
     # Heuristic 3: Overall piece density
-    bottom_half_white = sum(1 for i in range(32, 64) if board[i].startswith('w'))
-    bottom_half_black = sum(1 for i in range(32, 64) if board[i].startswith('b'))
+    bottom_half_white = sum(1 for i in range(
+        32, 64) if board[i].startswith('w'))
+    bottom_half_black = sum(1 for i in range(
+        32, 64) if board[i].startswith('b'))
     top_half_white = sum(1 for i in range(0, 32) if board[i].startswith('w'))
     top_half_black = sum(1 for i in range(0, 32) if board[i].startswith('b'))
 
@@ -341,11 +363,18 @@ def detect_board_orientation(predictions):
 
 
 class ChessMateApp:
-    def __init__(self, model_path, class_names, device='cuda'):
+    def __init__(self, model_path, class_names, device='cuda', side_to_move='white', engine_depth=3):
         """
         Initialize the CheckMate Machine application.
         """
+        if side_to_move not in ('white', 'black'):
+            raise ValueError("side_to_move must be 'white' or 'black'")
+        if engine_depth <= 0:
+            raise ValueError('engine_depth must be greater than zero')
+
         self.classifier = ChessPieceClassifier(model_path, class_names, device)
+        self.side_to_move = side_to_move
+        self.engine_depth = engine_depth
         print("CheckMate Machine initialized successfully!")
 
     def capture_screenshot(self, region=None):
@@ -370,13 +399,15 @@ class ChessMateApp:
 
         Args:
             img: Input image (BGR format)
-            board_orientation: 'white' or 'black' (which side is at bottom)
+            auto_detect_orientation: Detect which side is at the bottom
             save_debug: Whether to save debug images
 
         Returns:
-            fen_string: FEN notation of the board
+            fen_string: Full FEN notation of the board
             predictions: List of (class, confidence) for each square
             warped_board: Extracted board image
+            best_move: Top engine move in coordinate notation
+            engine_stats: Search statistics
         """
         print("Processing board image...")
 
@@ -393,14 +424,34 @@ class ChessMateApp:
 
         if auto_detect_orientation:
             board_orientation = detect_board_orientation(predictions)
-            print(f"Detected orientation: {board_orientation.upper()} at bottom")
+            print(
+                f"Detected orientation: {board_orientation.upper()} at bottom")
         else:
             board_orientation = 'white'
 
-        fen_string = generate_fen_from_predictions(predictions, board_orientation)
+        piece_placement = generate_fen_from_predictions(
+            predictions, board_orientation)
+        side = 'w' if self.side_to_move == 'white' else 'b'
+        fen_string = f'{piece_placement} {side} - - 0 1'
+        best_move, engine_stats = find_best_move_for_fen(
+            fen_string,
+            side_input=self.side_to_move,
+            depth=self.engine_depth
+        )
+        best_move_text = self.format_move(best_move)
         print(f"FEN generated: {fen_string}")
+        print(f"Engine recommendation: {best_move_text}")
 
-        return fen_string, predictions, warped_board
+        return fen_string, predictions, warped_board, best_move_text, engine_stats
+
+    @staticmethod
+    def format_move(move):
+        """Convert an engine move tuple to standard coordinate notation."""
+        if move is None:
+            return None
+
+        (from_row, from_col), (to_row, to_col) = move
+        return f'{chr(97 + from_col)}{8 - from_row}{chr(97 + to_col)}{8 - to_row}'
 
     def process_screenshot(self, region=None, auto_detect_orientation=True):
         """
@@ -434,14 +485,15 @@ class ChessMateApp:
         try:
             while True:
                 try:
-                    fen_string, predictions, _, orientation = self.process_screenshot(
+                    fen_string, predictions, _, best_move, engine_stats = self.process_screenshot(
                         region,
                         auto_detect_orientation
                     )
 
                     print(f"\n{'=' * 60}")
-                    print(f"Orientation: {orientation.upper()} pieces at bottom")
                     print(f"FEN: {fen_string}")
+                    print(f"Best move: {best_move or 'No legal moves'}")
+                    print(f"Engine stats: {engine_stats}")
                     print(f"{'=' * 60}\n")
 
                     # Display board in text format
@@ -485,6 +537,8 @@ class ChessMateApp:
 if __name__ == "__main__":
     # Configuration
     MODEL_PATH = "chess_piece_cnn.pth"  # Path to your trained model
+    SIDE_TO_MOVE = 'white'
+    ENGINE_DEPTH = 3
 
     # Class names match training order
     CLASS_NAMES = ['bb', 'bk', 'bn', 'bp', 'bq', 'br',
@@ -494,7 +548,13 @@ if __name__ == "__main__":
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Initialize app
-    app = ChessMateApp(MODEL_PATH, CLASS_NAMES, DEVICE)
+    app = ChessMateApp(
+        MODEL_PATH,
+        CLASS_NAMES,
+        DEVICE,
+        side_to_move=SIDE_TO_MOVE,
+        engine_depth=ENGINE_DEPTH
+    )
 
     app.continuous_monitoring(
         region=None,
