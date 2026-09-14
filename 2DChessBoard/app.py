@@ -9,6 +9,8 @@ import pyautogui  # For screen capture
 from pathlib import Path
 import time
 import importlib.util
+import logging
+import pickle
 
 
 ENGINE_PATH = Path(__file__).resolve().parent.parent / \
@@ -20,6 +22,10 @@ if ENGINE_SPEC is None or ENGINE_SPEC.loader is None:
 ENGINE_MODULE = importlib.util.module_from_spec(ENGINE_SPEC)
 ENGINE_SPEC.loader.exec_module(ENGINE_MODULE)
 find_best_move_for_fen = ENGINE_MODULE.find_best_move_for_fen
+
+
+class ModelLoadError(RuntimeError):
+    """Raised when the chess-piece model is missing or cannot be loaded."""
 
 
 class ChessPieceCNN(nn.Module):
@@ -158,11 +164,27 @@ class ChessPieceClassifier:
             device if torch.cuda.is_available() else 'cpu')
         self.class_names = class_names
 
+        model_path = Path(model_path)
+        if not model_path.is_absolute():
+            model_path = Path(__file__).resolve().parent / model_path
+        self.model_path = model_path
+
+        if not model_path.is_file():
+            message = f"Chess-piece model not found: {model_path}"
+            logging.error(message)
+            raise ModelLoadError(message)
+
         # Load model
         num_classes = len(class_names)
         self.model = ChessPieceCNN(num_classes).to(self.device)
-        self.model.load_state_dict(torch.load(
-            model_path, map_location=self.device))
+        try:
+            model_state = torch.load(model_path, map_location=self.device)
+            self.model.load_state_dict(model_state)
+        except (OSError, RuntimeError, ValueError, EOFError,
+                pickle.UnpicklingError, AttributeError, ModuleNotFoundError) as exc:
+            message = f"Could not load chess-piece model '{model_path}': {exc}"
+            logging.error(message)
+            raise ModelLoadError(message) from exc
         self.model.eval()
 
         print(f"Model loaded successfully on {self.device}")
@@ -547,19 +569,22 @@ if __name__ == "__main__":
 
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    # Initialize app
-    app = ChessMateApp(
-        MODEL_PATH,
-        CLASS_NAMES,
-        DEVICE,
-        side_to_move=SIDE_TO_MOVE,
-        engine_depth=ENGINE_DEPTH
-    )
+    try:
+        # Initialize app
+        app = ChessMateApp(
+            MODEL_PATH,
+            CLASS_NAMES,
+            DEVICE,
+            side_to_move=SIDE_TO_MOVE,
+            engine_depth=ENGINE_DEPTH
+        )
 
-    app.continuous_monitoring(
-        region=None,
-        interval=3,   # seconds between captures
-        auto_detect_orientation=True
-    )
+        app.continuous_monitoring(
+            region=None,
+            interval=3,   # seconds between captures
+            auto_detect_orientation=True
+        )
+    except ModelLoadError as exc:
+        print(f"Unable to start chessboard service: {exc}")
 
     print("\nProcessing complete!")
