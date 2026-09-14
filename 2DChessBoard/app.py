@@ -8,6 +8,7 @@ from PIL import Image
 import pyautogui  # For screen capture
 from pathlib import Path
 import time
+from typing import Optional
 import chess
 
 
@@ -358,7 +359,7 @@ class ChessMateApp:
         self.classifier = ChessPieceClassifier(model_path, class_names, device)
         # Tracks the last confirmed-legal position. None until the first recognized
         # frame seeds it (see _update_game_state).
-        self.game_board: chess.Board = None
+        self.game_board: Optional[chess.Board] = None
         print("CheckMate Machine initialized successfully!")
 
     def reset_game(self):
@@ -406,9 +407,12 @@ class ChessMateApp:
 
         # Find the legal move (if any) whose resulting placement matches what the
         # CNN just read. This validates the transition against real chess rules
-        # without having to guess which squares changed.
+        # without having to guess which squares changed. The move list is
+        # materialized up front (rather than iterated lazily) because we push/pop
+        # moves on this same board below, and python-chess's legal_moves generator
+        # is not guaranteed to tolerate the board being mutated mid-iteration.
         matched_move = None
-        for candidate in self.game_board.legal_moves:
+        for candidate in list(self.game_board.legal_moves):
             self.game_board.push(candidate)
             matches = self.game_board.board_fen() == detected_placement
             self.game_board.pop()
