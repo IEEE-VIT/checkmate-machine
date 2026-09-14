@@ -297,10 +297,69 @@ class ChessBoard:
 
         return moves
 
+    def find_king(self, color: str) -> Optional[Tuple[int, int]]:
+        """Find the king position for the given side."""
+        target = 'K' if color == 'white' else 'k'
+        for r in range(8):
+            for c in range(8):
+                if self.board[r][c] == target:
+                    return (r, c)
+        return None
+
+    def is_square_attacked(self, row: int, col: int, by_color: str) -> bool:
+        """Is (row, col) attacked by any piece of by_color?"""
+        is_target_color = self.is_white_piece if by_color == 'white' else self.is_black_piece
+
+        pawn_dr = 1 if by_color == 'white' else -1
+        for dc in (-1, 1):
+            pr, pc = row + pawn_dr, col + dc
+            if 0 <= pr < 8 and 0 <= pc < 8:
+                p = self.board[pr][pc]
+                if p and p.lower() == 'p' and is_target_color(p):
+                    return True
+
+        for dr, dc in [(-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)]:
+            nr, nc = row + dr, col + dc
+            if 0 <= nr < 8 and 0 <= nc < 8:
+                p = self.board[nr][nc]
+                if p and p.lower() == 'n' and is_target_color(p):
+                    return True
+
+        for dr, dc in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]:
+            nr, nc = row + dr, col + dc
+            if 0 <= nr < 8 and 0 <= nc < 8:
+                p = self.board[nr][nc]
+                if p and p.lower() == 'k' and is_target_color(p):
+                    return True
+
+        diag = [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+        straight = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        for directions, types in [(diag, ('b', 'q')), (straight, ('r', 'q'))]:
+            for dr, dc in directions:
+                nr, nc = row + dr, col + dc
+                while 0 <= nr < 8 and 0 <= nc < 8:
+                    p = self.board[nr][nc]
+                    if p:
+                        if is_target_color(p) and p.lower() in types:
+                            return True
+                        break
+                    nr += dr
+                    nc += dc
+
+        return False
+
+    def is_in_check(self, color: str) -> bool:
+        """Return True if the given side's king is currently in check."""
+        king_pos = self.find_king(color)
+        if king_pos is None:
+            return False
+        enemy = 'black' if color == 'white' else 'white'
+        return self.is_square_attacked(king_pos[0], king_pos[1], enemy)
+
     def get_all_legal_moves(self) -> List[Tuple[Tuple[int, int], Tuple[int, int]]]:
-        """Get all legal moves for current player."""
+        """Get all legal moves for current player (excludes moves leaving own king in check)."""
         turn = self.get_current_turn()
-        moves = []
+        pseudo_legal = []
 
         for r in range(8):
             for c in range(8):
@@ -313,9 +372,26 @@ class ChessBoard:
 
                 valid_moves = self.get_valid_moves(r, c)
                 for nr, nc in valid_moves:
-                    moves.append(((r, c), (nr, nc)))
+                    pseudo_legal.append(((r, c), (nr, nc)))
 
-        return moves
+        legal = []
+        for from_pos, to_pos in pseudo_legal:
+            if self.make_move(from_pos, to_pos):
+                if not self.is_in_check(turn):
+                    legal.append((from_pos, to_pos))
+                self.undo_move()
+
+        return legal
+
+    def get_game_state(self) -> str:
+        """Returns 'checkmate', 'stalemate', 'check', or 'ongoing' for the current player."""
+        turn = self.get_current_turn()
+        in_check = self.is_in_check(turn)
+        has_moves = len(self.get_all_legal_moves()) > 0
+
+        if not has_moves:
+            return 'checkmate' if in_check else 'stalemate'
+        return 'check' if in_check else 'ongoing'
 
     def make_move(self, from_pos: Tuple[int, int], to_pos: Tuple[int, int]) -> bool:
         """Make a move. Returns True if successful."""
@@ -329,9 +405,10 @@ class ChessBoard:
         if (r2, c2) not in self.get_valid_moves(r1, c1):
             return False
 
+        captured = self.board[r2][c2]
         self.board[r2][c2] = piece
         self.board[r1][c1] = None
-        self.move_history.append((from_pos, to_pos))
+        self.move_history.append((from_pos, to_pos, captured))
         return True
 
     def undo_move(self) -> bool:
@@ -339,13 +416,13 @@ class ChessBoard:
         if not self.move_history:
             return False
 
-        from_pos, to_pos = self.move_history.pop()
+        from_pos, to_pos, captured = self.move_history.pop()
         r1, c1 = from_pos
         r2, c2 = to_pos
 
         piece = self.board[r2][c2]
         self.board[r1][c1] = piece
-        self.board[r2][c2] = None
+        self.board[r2][c2] = captured
         return True
 
     def evaluate(self) -> int:
