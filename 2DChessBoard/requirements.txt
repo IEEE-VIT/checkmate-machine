@@ -1,0 +1,11 @@
+# Dependencies for the vision/preprocessing pipeline (2DChessBoard/app.py).
+# Install with: pip install -r 2DChessBoard/requirements.txt
+# Kept separate from the top-level requirements.txt so the deployed backend
+# (Demo/Backend) doesn't have to pull in the CV/ML stack.
+opencv-python
+numpy
+torch
+torchvision
+Pillow
+pyautogui
+python-chess

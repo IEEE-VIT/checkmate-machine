@@ -80,3 +80,17 @@ Response format (JSON):
 	"stats": { "nodes_evaluated": 123, "depth": 2 }
 }
 ```
+
+### Running the vision pipeline (`2DChessBoard`)
+The board-recognition pipeline needs OpenCV/PyTorch/python-chess, which aren't part of
+the top-level `requirements.txt` (kept lean for the deployed backend). Install them
+separately:
+
+```bash
+pip install -r 2DChessBoard/requirements.txt
+python 2DChessBoard/app.py
+```
+
+This validates every recognized board update against `python-chess` (rejecting
+transitions that aren't legal moves) and shows check/checkmate/illegal-move alerts
+in a live window. Press `r` to reset tracking for a new game, `q` to quit.
