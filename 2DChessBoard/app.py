@@ -8,6 +8,16 @@ from PIL import Image
 import pyautogui  # For screen capture
 from pathlib import Path
 import time
+import chess
+
+
+# BGR colors for the on-image alert banner, keyed by alert level.
+ALERT_COLORS = {
+    'check': (0, 140, 255),
+    'checkmate': (0, 0, 220),
+    'stalemate': (180, 105, 255),
+    'illegal': (0, 0, 139),
+}
 
 
 class ChessPieceCNN(nn.Module):
@@ -346,7 +356,101 @@ class ChessMateApp:
         Initialize the CheckMate Machine application.
         """
         self.classifier = ChessPieceClassifier(model_path, class_names, device)
+        # Tracks the last confirmed-legal position. None until the first recognized
+        # frame seeds it (see _update_game_state).
+        self.game_board: chess.Board = None
         print("CheckMate Machine initialized successfully!")
+
+    def reset_game(self):
+        """Forget the tracked game state so the next recognized frame re-seeds it.
+
+        Use this when a fresh game is placed on the physical board, otherwise the
+        validator keeps comparing new frames against a stale position and every
+        frame will read as an illegal move.
+        """
+        self.game_board = None
+        print("Game state reset - waiting for a new starting position")
+
+    def _update_game_state(self, detected_placement, side_to_move=None):
+        """
+        Feed a freshly recognized board placement into a python-chess Board to
+        validate that the transition from the last confirmed state is a legal move,
+        and surface check/checkmate/stalemate/illegal-move alerts.
+
+        Args:
+            detected_placement: FEN piece-placement field (no side/castling/etc.)
+                produced by generate_fen_from_predictions for the current frame.
+            side_to_move: Only used the first time the tracker is seeded, to know
+                whose move it is at the position the camera first sees.
+
+        Returns:
+            An alert dict {'level': ..., 'message': ...} for a notable event
+            (check, checkmate, stalemate, illegal move), or None if the frame
+            didn't change anything worth flagging (no move yet, or an ordinary
+            quiet move).
+        """
+        if self.game_board is None:
+            side_char = 'w' if (side_to_move or 'white') == 'white' else 'b'
+            try:
+                self.game_board = chess.Board(f"{detected_placement} {side_char} - - 0 1")
+            except ValueError:
+                # Not a structurally valid chess position (e.g. missing/duplicate
+                # kings from a misclassification) - wait for a cleaner read instead
+                # of adopting a broken baseline.
+                self.game_board = None
+                return {'level': 'illegal', 'message': 'Unrecognized starting position'}
+            return None
+
+        if detected_placement == self.game_board.board_fen():
+            return None  # Nothing has moved since the last confirmed frame.
+
+        # Find the legal move (if any) whose resulting placement matches what the
+        # CNN just read. This validates the transition against real chess rules
+        # without having to guess which squares changed.
+        matched_move = None
+        for candidate in self.game_board.legal_moves:
+            self.game_board.push(candidate)
+            matches = self.game_board.board_fen() == detected_placement
+            self.game_board.pop()
+            if matches:
+                matched_move = candidate
+                break
+
+        if matched_move is None:
+            return {'level': 'illegal', 'message': 'Illegal move attempt detected'}
+
+        move_san = self.game_board.san(matched_move)
+        self.game_board.push(matched_move)
+
+        if self.game_board.is_checkmate():
+            winner = 'White' if self.game_board.turn == chess.BLACK else 'Black'
+            return {'level': 'checkmate', 'message': f'Checkmate! {winner} wins ({move_san})'}
+        if self.game_board.is_stalemate():
+            return {'level': 'stalemate', 'message': f'Stalemate - draw ({move_san})'}
+        if self.game_board.is_check():
+            checked_side = 'White' if self.game_board.turn == chess.WHITE else 'Black'
+            return {'level': 'check', 'message': f'Check on {checked_side} ({move_san})'}
+
+        print(f"Move played: {move_san}")
+        return None
+
+    def _display_alert(self, board_img, alert, window_name='CheckMate Machine - Live Board'):
+        """Overlay a colored banner with the alert message and show it in a window.
+
+        This is the only visual surface the vision pipeline has today, so check /
+        checkmate / illegal-move alerts are drawn directly on the captured board
+        image rather than requiring a separate UI.
+        """
+        if board_img is None:
+            return
+        img = board_img.copy()
+        if alert is not None:
+            color = ALERT_COLORS.get(alert['level'], (0, 0, 255))
+            cv.rectangle(img, (0, 0), (img.shape[1], 50), color, -1)
+            cv.putText(img, alert['message'], (10, 34), cv.FONT_HERSHEY_SIMPLEX,
+                       0.8, (255, 255, 255), 2, cv.LINE_AA)
+            print(f"ALERT [{alert['level'].upper()}]: {alert['message']}")
+        cv.imshow(window_name, img)
 
     def capture_screenshot(self, region=None):
         """
@@ -364,19 +468,26 @@ class ChessMateApp:
         screenshot_bgr = cv.cvtColor(screenshot_np, cv.COLOR_RGB2BGR)
         return screenshot_bgr
 
-    def process_board_image(self, img, auto_detect_orientation, save_debug=False):
+    def process_board_image(self, img, auto_detect_orientation, save_debug=False,
+                            side_to_move=None, show_window=False):
         """
-        Complete pipeline: detect board, extract squares, classify, generate FEN.
+        Complete pipeline: detect board, extract squares, classify, generate FEN,
+        validate the resulting position against the last confirmed one, and (when
+        requested) surface any check/checkmate/illegal-move alert visually.
 
         Args:
             img: Input image (BGR format)
             board_orientation: 'white' or 'black' (which side is at bottom)
             save_debug: Whether to save debug images
+            side_to_move: Only used to seed the very first tracked position.
+            show_window: Draw the alert banner (if any) and display the board.
 
         Returns:
             fen_string: FEN notation of the board
             predictions: List of (class, confidence) for each square
             warped_board: Extracted board image
+            board_orientation: 'white' or 'black'
+            alert: dict {'level', 'message'} for a notable event, or None
         """
         print("Processing board image...")
 
@@ -400,17 +511,24 @@ class ChessMateApp:
         fen_string = generate_fen_from_predictions(predictions, board_orientation)
         print(f"FEN generated: {fen_string}")
 
-        return fen_string, predictions, warped_board
+        alert = self._update_game_state(fen_string, side_to_move=side_to_move)
+        if show_window:
+            self._display_alert(warped_board, alert)
 
-    def process_screenshot(self, region=None, auto_detect_orientation=True):
+        return fen_string, predictions, warped_board, board_orientation, alert
+
+    def process_screenshot(self, region=None, auto_detect_orientation=True,
+                           side_to_move=None, show_window=False):
         """
         Capture screenshot and process it.
         """
         print("\nCapturing screenshot...")
         img = self.capture_screenshot(region)
-        return self.process_board_image(img, auto_detect_orientation=auto_detect_orientation)
+        return self.process_board_image(img, auto_detect_orientation=auto_detect_orientation,
+                                        side_to_move=side_to_move, show_window=show_window)
 
-    def process_image_file(self, image_path, auto_detect_orientation=True):
+    def process_image_file(self, image_path, auto_detect_orientation=True,
+                           side_to_move=None, show_window=False):
         """
         Load image from file and process it.
         """
@@ -418,25 +536,33 @@ class ChessMateApp:
         img = cv.imread(str(image_path))
         if img is None:
             raise ValueError(f"Could not load image from {image_path}")
-        return self.process_board_image(img, auto_detect_orientation=auto_detect_orientation)
+        return self.process_board_image(img, auto_detect_orientation=auto_detect_orientation,
+                                        side_to_move=side_to_move, show_window=show_window)
 
-    def continuous_monitoring(self, region=None, interval=3, auto_detect_orientation=True):
+    def continuous_monitoring(self, region=None, interval=3, auto_detect_orientation=True,
+                              side_to_move=None, show_window=True):
         """
-        Continuously monitor and process board at regular intervals.
+        Continuously monitor and process board at regular intervals, validating
+        each new frame against the last confirmed legal position.
 
         Args:
             region: Screen region to capture
             interval: Seconds between captures
+            side_to_move: Side to move in the very first frame (defaults to white).
+            show_window: Show a live window with check/checkmate/illegal-move alerts.
+                Press 'r' in the window to reset tracking for a new game, 'q' to quit.
         """
         print(f"\nStarting continuous monitoring (every {interval} seconds)")
-        print("Press Ctrl+C to stop\n")
+        print("Press Ctrl+C to stop" + (", or 'q'/'r' in the board window\n" if show_window else "\n"))
 
         try:
             while True:
                 try:
-                    fen_string, predictions, _, orientation = self.process_screenshot(
+                    fen_string, predictions, warped_board, orientation, alert = self.process_screenshot(
                         region,
-                        auto_detect_orientation
+                        auto_detect_orientation,
+                        side_to_move=side_to_move,
+                        show_window=show_window
                     )
 
                     print(f"\n{'=' * 60}")
@@ -450,10 +576,20 @@ class ChessMateApp:
                 except Exception as e:
                     print(f"Error processing board: {e}")
 
-                time.sleep(interval)
+                if show_window:
+                    key = cv.waitKey(max(1, int(interval * 1000))) & 0xFF
+                    if key == ord('q'):
+                        break
+                    elif key == ord('r'):
+                        self.reset_game()
+                else:
+                    time.sleep(interval)
 
         except KeyboardInterrupt:
             print("\nMonitoring stopped")
+        finally:
+            if show_window:
+                cv.destroyAllWindows()
 
     def display_board_text(self, predictions):
         """

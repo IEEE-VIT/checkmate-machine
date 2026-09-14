@@ -4,6 +4,7 @@
 # torchvision
 # Pillow
 # pyautogui
+# python-chess
 fastapi
 uvicorn[standard]
 pydantic
